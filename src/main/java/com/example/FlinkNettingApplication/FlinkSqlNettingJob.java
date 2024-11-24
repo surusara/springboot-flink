@@ -40,7 +40,7 @@ public class FlinkSqlNettingJob implements Serializable {
 
         // Create a Kafka consumer
         FlinkKafkaConsumer<String> kafkaConsumer = new FlinkKafkaConsumer<>(
-                "trade_topic11",
+                "trade_topic12",
                 new SimpleStringSchema(),
                 kafkaProperties
         );
@@ -84,7 +84,7 @@ public class FlinkSqlNettingJob implements Serializable {
 
         // Produce the results back to Kafka
         FlinkKafkaProducer<String> kafkaProducer = new FlinkKafkaProducer<>(
-                "netting_results11",
+                "netting_results12",
                 new SimpleStringSchema(),
                 kafkaProperties
         );

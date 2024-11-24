@@ -45,126 +45,108 @@ public class NettingProcessFunction extends KeyedProcessFunction<CompositeKey, T
 
     @Override
     public void processElement(Trade trade, Context ctx, Collector<NettingResult> out) throws Exception {
-        // Get current state value for net consideration, default to 0.0 if not set
+        // Get the current net consideration state, default to 0.0 if not set
         Double currentNetConsideration = netConsiderationState.value();
         if (currentNetConsideration == null) {
             currentNetConsideration = 0.0;
         }
 
-        // Get current paymentId, create one if not set
+        // Get the current paymentId, create a new one if necessary
         String paymentId = paymentIdState.value();
-        if (paymentId == null) {
-            paymentId = UUID.randomUUID().toString();
-            paymentIdState.update(paymentId);
-        }
-
-        // Get the settlementDate as String
-        String settlementDateString = trade.settlementDate;  // This is a String
-
-        LocalDate settlementDate = LocalDate.parse(settlementDateString, DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-        long settlementTimestamp = settlementDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
-
-        // Calculate the default window end time (3 days before the settlement date)
-        long defaultWindowEndTime = settlementTimestamp - (3 * 24 * 60 * 60 * 1000L);  // settlementDate - 3 days
-
-        // Current system time (in milliseconds)
-        long currentTimeMillis = System.currentTimeMillis();
-
-        long windowEndTime;
-
-        // Decide the window end time based on the settlement date
-        if (defaultWindowEndTime > currentTimeMillis) {
-            // Scenario 1: Settlement date is in the future, use (settlementDate - 3 days) + 2 minutes
-            windowEndTime = defaultWindowEndTime + (2 * 60 * 1000L);  // Add 2 minutes
-        } else {
-            // Scenario 2: Settlement date is today or earlier, terminate 2 minutes from now
-            windowEndTime = currentTimeMillis + (2 * 60 * 1000L);
-        }
-
-        // Update the windowEndState and register the timer
-        if (windowEndState.value() == null ) {
-            windowEndState.update(windowEndTime);
-            //ctx.timerService().registerEventTimeTimer(windowEndTime);
-            ctx.timerService().registerProcessingTimeTimer(windowEndTime);
-            // Log or convert the windowEndTime for clarity
-            Date dtwindowEndTime = new Date(windowEndTime);
-            System.out.println("Window End Time Set to : " + dtwindowEndTime);
-        } else {
-            // Log the existing window end time for reference
-            Date dtExistingWindowEndTime = new Date(windowEndState.value());
-            System.out.println("Existing Window End Time: " + dtExistingWindowEndTime);
-        }
-
-        // Set initial state to "Initial" if not set
         String state = stateState.value();
+
         if (state == null) {
-            state = "Initial";  // Initial state for a new group
+            state = "Open";  // Initial state for a new group
             stateState.update(state);
         } else {
-            // Update the state to "Intermediate" if it's not "Final"
-            if (!"Final".equalsIgnoreCase(state)) {
+            // Transition to "Intermediate" if the group is already open
+            if ("Open".equalsIgnoreCase(state)) {
                 state = "Intermediate";
                 stateState.update(state);
             }
         }
+        // Create a new group if the current state is null or "Closed"
+        if (paymentId == null || "Closed".equalsIgnoreCase(state)) {
+            paymentId = UUID.randomUUID().toString();
+            paymentIdState.update(paymentId);
+            currentNetConsideration = 0.0; // Reset the net consideration
+            state = "Open"; // New group starts in the "Open" state
+            stateState.update(state);
+        }
 
-        // Update the net consideration based on the trade operation
+        // Parse the settlement date from the trade
+        String settlementDateString = trade.settlementDate;
+        LocalDate settlementDate = LocalDate.parse(settlementDateString, DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+        long settlementTimestamp = settlementDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
+
+        // Calculate the default window end time
+        long defaultWindowEndTime = settlementTimestamp - (3 * 24 * 60 * 60 * 1000L);
+
+        // Determine the window end time based on current time
+        long currentTimeMillis = System.currentTimeMillis();
+        long windowEndTime = (defaultWindowEndTime > currentTimeMillis)
+                ? defaultWindowEndTime + (2 * 60 * 1000L) // Future settlement date
+                : currentTimeMillis + (2 * 60 * 1000L);   // Past or today
+
+        // Register the timer for the current window if necessary
+        if (windowEndState.value() == null || "Closed".equalsIgnoreCase(state)) {
+            windowEndState.update(windowEndTime);
+            ctx.timerService().registerProcessingTimeTimer(windowEndTime);
+            System.out.println("Window end time registered: " + new Date(windowEndTime));
+        }
+
+        // Update net consideration based on the trade operation
         if ("Insert".equalsIgnoreCase(trade.operation)) {
             currentNetConsideration += trade.consideration;
         } else if ("Cancel".equalsIgnoreCase(trade.operation)) {
             currentNetConsideration -= trade.consideration;
         }
 
+
+
         // Update the net consideration state
         netConsiderationState.update(currentNetConsideration);
 
-        // Emit intermediate netting result with state "Intermediate"
+        // Emit an intermediate result
         NettingResult intermediateResult = new NettingResult();
         intermediateResult.client = trade.client;
         intermediateResult.currency = trade.currency;
         intermediateResult.buySellDirection = trade.buySellDirection;
-        intermediateResult.settlementDate = settlementDateString;  // Keep the original string format
+        intermediateResult.settlementDate = settlementDateString;
         intermediateResult.netConsideration = currentNetConsideration;
         intermediateResult.paymentId = paymentId;
-        intermediateResult.state = state;  // Emit the state (Initial or Intermediate)
+        intermediateResult.state = state;
 
-        // Emit intermediate result in real-time
         out.collect(intermediateResult);
     }
 
     @Override
     public void onTimer(long timestamp, OnTimerContext ctx, Collector<NettingResult> out) throws Exception {
-        // When the window end time is reached, emit the final netting result
+        // When the window end time is reached, emit the final result
         Double finalNetConsideration = netConsiderationState.value();
         String paymentId = paymentIdState.value();
 
-        // Get the key (CompositeKey) to access its properties (e.g., client, currency, etc.)
+        // Get the current key for accessing the client and other details
         CompositeKey currentKey = ctx.getCurrentKey();
 
-        // Create and emit the final netting result for the group
-        NettingResult result = new NettingResult();
+        // Create and emit the final result
+        NettingResult finalResult = new NettingResult();
+        finalResult.client = currentKey.client;
+        finalResult.currency = currentKey.currency;
+        finalResult.buySellDirection = currentKey.buySellDirection;
+        finalResult.settlementDate = currentKey.settlementDate;
+        finalResult.netConsideration = finalNetConsideration;
+        finalResult.paymentId = paymentId;
+        finalResult.state = "Closed";
 
-        // Ensure these fields exist in your CompositeKey class
-        result.client = currentKey.client;  // Accessing client from CompositeKey
-        result.currency = currentKey.currency;  // Accessing currency from CompositeKey
-        result.buySellDirection = currentKey.buySellDirection;  // Accessing buySellDirection from CompositeKey
+        // Log the timer trigger
+        System.out.println("Final timer triggered at: " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        out.collect(finalResult);
 
-        // Directly access settlementDate (since it's a String)
-        result.settlementDate = currentKey.settlementDate;  // Accessing settlementDate (String directly)
-
-        result.netConsideration = finalNetConsideration;
-        result.paymentId = paymentId;
-        result.state = "Final";  // Set the state to "Final" when the window ends
-        // Log the current date and time
-        LocalDateTime now = LocalDateTime.now();
-        System.out.println("Final window timer triggered: " + now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
-        // Emit the final netting result
-        out.collect(result);
-
-        // Clean up all states associated with the current key
+        // Update the state to "Closed" and clear other states
+        stateState.update("Closed");
         netConsiderationState.clear();
         paymentIdState.clear();
         windowEndState.clear();
-        stateState.clear();
     }
 }
