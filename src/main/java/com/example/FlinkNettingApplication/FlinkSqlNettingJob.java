@@ -13,6 +13,8 @@ import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
 import org.apache.flink.formats.avro.AvroDeserializationSchema;
 import org.apache.flink.formats.avro.AvroSerializationSchema;
 
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.Serializable;
 import java.util.Properties;
 
@@ -24,6 +26,9 @@ public class FlinkSqlNettingJob implements Serializable {
             .registerModule(new JavaTimeModule());
 
     public void execute() throws Exception {
+        // Load properties from application.properties
+        Properties appProperties = loadProperties("application.properties");
+
         // Set up Flink configuration and environment
         Configuration configuration = new Configuration();
         configuration.setString("class-name", "org.apache.flink.table.planner.delegation.BlinkExecutorFactory");
@@ -33,21 +38,28 @@ public class FlinkSqlNettingJob implements Serializable {
 
         // Kafka properties for Confluent Cloud
         Properties kafkaProperties = new Properties();
-        kafkaProperties.setProperty("bootstrap.servers", "<YOUR_CONFLUENT_CLOUD_BOOTSTRAP_SERVERS>");
-        kafkaProperties.setProperty("group.id", "flink_group1");
-        kafkaProperties.setProperty("security.protocol", "SASL_SSL");
-        kafkaProperties.setProperty("sasl.mechanism", "PLAIN");
+        kafkaProperties.setProperty("bootstrap.servers", appProperties.getProperty("kafka.bootstrap.servers"));
+        kafkaProperties.setProperty("group.id", appProperties.getProperty("kafka.group.id"));
+        kafkaProperties.setProperty("security.protocol", appProperties.getProperty("kafka.security.protocol"));
+        kafkaProperties.setProperty("sasl.mechanism", appProperties.getProperty("kafka.sasl.mechanism"));
         kafkaProperties.setProperty(
                 "sasl.jaas.config",
-                "org.apache.kafka.common.security.plain.PlainLoginModule required " +
-                        "username=\"<YOUR_API_KEY>\" " +
-                        "password=\"<YOUR_API_SECRET>\";"
+                String.format(
+                        "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"%s\" password=\"%s\";",
+                        appProperties.getProperty("kafka.api.key"),
+                        appProperties.getProperty("kafka.api.secret")
+                )
         );
-        kafkaProperties.setProperty("ssl.endpoint.identification.algorithm", "https");
+        kafkaProperties.setProperty("ssl.endpoint.identification.algorithm", appProperties.getProperty("kafka.ssl.endpoint.identification.algorithm"));
+
+        // Add Schema Registry configuration
+        kafkaProperties.setProperty("schema.registry.url", appProperties.getProperty("schema.registry.url"));
+        kafkaProperties.setProperty("basic.auth.credentials.source", appProperties.getProperty("schema.registry.auth.credentials.source"));
+        kafkaProperties.setProperty("basic.auth.user.info", appProperties.getProperty("schema.registry.auth.user.info"));
 
         // Kafka consumer for Avro deserialization
         FlinkKafkaConsumer<Trade> kafkaConsumer = new FlinkKafkaConsumer<>(
-                "trade_topic15",
+                appProperties.getProperty("kafka.input.topic"),
                 AvroDeserializationSchema.forSpecific(Trade.class),
                 kafkaProperties
         );
@@ -76,17 +88,15 @@ public class FlinkSqlNettingJob implements Serializable {
                 ))
                 .process(new NettingProcessFunction());
 
-        // Define Kafka sink for Confluent Cloud
         KafkaSink<NettingResult> kafkaSink = KafkaSink.<NettingResult>builder()
-                .setBootstrapServers("<YOUR_CONFLUENT_CLOUD_BOOTSTRAP_SERVERS>")
-                .setKafkaProducerConfig(kafkaProperties) // Use the same properties as the consumer
+                .setKafkaProducerConfig(kafkaProperties)
                 .setRecordSerializer(
                         KafkaRecordSerializationSchema.builder()
-                                .setTopic("netting_results15")
+                                .setTopic(appProperties.getProperty("kafka.output.topic"))
                                 .setValueSerializationSchema(AvroSerializationSchema.forSpecific(NettingResult.class))
                                 .build()
                 )
-                .setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE) // Ensure at-least-once delivery
+                .setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)
                 .build();
 
         // Sink the results
@@ -94,5 +104,13 @@ public class FlinkSqlNettingJob implements Serializable {
 
         // Execute the Flink job
         env.execute("Flink Netting Job with Avro and Confluent Cloud");
+    }
+
+    private Properties loadProperties(String filePath) throws IOException {
+        Properties properties = new Properties();
+        try (FileInputStream fis = new FileInputStream(filePath)) {
+            properties.load(fis);
+        }
+        return properties;
     }
 }
