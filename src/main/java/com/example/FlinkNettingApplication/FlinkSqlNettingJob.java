@@ -13,9 +13,7 @@ import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
 import org.apache.flink.formats.avro.AvroDeserializationSchema;
 import org.apache.flink.formats.avro.AvroSerializationSchema;
 
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.Serializable;
+import java.io.*;
 import java.util.Properties;
 
 public class FlinkSqlNettingJob implements Serializable {
@@ -106,11 +104,15 @@ public class FlinkSqlNettingJob implements Serializable {
         env.execute("Flink Netting Job with Avro and Confluent Cloud");
     }
 
-    private Properties loadProperties(String filePath) throws IOException {
+    private Properties loadProperties(String fileName) throws IOException {
         Properties properties = new Properties();
-        try (FileInputStream fis = new FileInputStream(filePath)) {
-            properties.load(fis);
+        try (InputStream inputStream = getClass().getClassLoader().getResourceAsStream(fileName)) {
+            if (inputStream == null) {
+                throw new FileNotFoundException("Property file '" + fileName + "' not found in the classpath");
+            }
+            properties.load(inputStream);
         }
         return properties;
     }
+
 }
