@@ -75,7 +75,7 @@ public class NettingProcessFunction extends KeyedProcessFunction<CompositeKey, T
         }
 
         // Parse the settlement date from the trade
-        String settlementDateString = trade.settlementDate;
+        String settlementDateString = (String) trade.getSettlementDate();
         LocalDate settlementDate = LocalDate.parse(settlementDateString, DateTimeFormatter.ofPattern("yyyy-MM-dd"));
         long settlementTimestamp = settlementDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
 
@@ -96,10 +96,11 @@ public class NettingProcessFunction extends KeyedProcessFunction<CompositeKey, T
         }
 
         // Update net consideration based on the trade operation
-        if ("Insert".equalsIgnoreCase(trade.operation)) {
-            currentNetConsideration += trade.consideration;
-        } else if ("Cancel".equalsIgnoreCase(trade.operation)) {
-            currentNetConsideration -= trade.consideration;
+        if ("Insert".equalsIgnoreCase(trade.getOperation().toString())) {
+            currentNetConsideration += trade.getConsideration();
+        } else if ("Cancel".equalsIgnoreCase(trade.getOperation().toString())) {
+            // if you need to subtract the consideration, change + to - in the below line
+            currentNetConsideration -= trade.getConsideration();
         }
 
 
@@ -109,13 +110,13 @@ public class NettingProcessFunction extends KeyedProcessFunction<CompositeKey, T
 
         // Emit an intermediate result
         NettingResult intermediateResult = new NettingResult();
-        intermediateResult.client = trade.client;
-        intermediateResult.currency = trade.currency;
-        intermediateResult.buySellDirection = trade.buySellDirection;
-        intermediateResult.settlementDate = settlementDateString;
-        intermediateResult.netConsideration = currentNetConsideration;
-        intermediateResult.paymentId = paymentId;
-        intermediateResult.state = state;
+        intermediateResult.setClient(trade.getClient());
+        intermediateResult.setCurrency(trade.getCurrency());
+        intermediateResult.setBuySellDirection(trade.getBuySellDirection());
+        intermediateResult.setSettlementDate(settlementDateString);
+        intermediateResult.setNetConsideration(currentNetConsideration);
+        intermediateResult.setPaymentId(paymentId);
+        intermediateResult.setState(state);
 
         out.collect(intermediateResult);
     }
@@ -131,13 +132,13 @@ public class NettingProcessFunction extends KeyedProcessFunction<CompositeKey, T
 
         // Create and emit the final result
         NettingResult finalResult = new NettingResult();
-        finalResult.client = currentKey.client;
-        finalResult.currency = currentKey.currency;
-        finalResult.buySellDirection = currentKey.buySellDirection;
-        finalResult.settlementDate = currentKey.settlementDate;
-        finalResult.netConsideration = finalNetConsideration;
-        finalResult.paymentId = paymentId;
-        finalResult.state = "Closed";
+        finalResult.setClient(currentKey.client);
+        finalResult.setCurrency(currentKey.currency);
+        finalResult.setBuySellDirection(currentKey.buySellDirection);
+        finalResult.setSettlementDate(currentKey.settlementDate);
+        finalResult.setNetConsideration(finalNetConsideration);
+        finalResult.setPaymentId(paymentId);
+        finalResult.setState("Closed");
 
         // Log the timer trigger
         System.out.println("Final timer triggered at: " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));

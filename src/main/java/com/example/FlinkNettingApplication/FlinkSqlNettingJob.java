@@ -1,100 +1,91 @@
 package com.example.FlinkNettingApplication;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
-import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.api.common.serialization.SerializationSchema;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.connector.base.DeliveryGuarantee;
+import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
+import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
-import org.apache.flink.streaming.api.functions.ProcessFunction;
-import org.apache.flink.util.Collector;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import org.apache.flink.formats.avro.AvroDeserializationSchema;
+import org.apache.flink.formats.avro.AvroSerializationSchema;
+
 import java.io.Serializable;
 import java.util.Properties;
 
 public class FlinkSqlNettingJob implements Serializable {
-    final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L;
 
-    // Example ObjectMapper configuration
+    // ObjectMapper for serialization/deserialization
     private static final ObjectMapper objectMapper = new ObjectMapper()
-            .registerModule(new JavaTimeModule()); // Register the module
+            .registerModule(new JavaTimeModule());
+
     public void execute() throws Exception {
-        // Set up execution environment
-
-        org.apache.flink.configuration.Configuration configuration = new org.apache.flink.configuration.Configuration();
-
-        // Set class name for Blink Executor Factory
+        // Set up Flink configuration and environment
+        Configuration configuration = new Configuration();
         configuration.setString("class-name", "org.apache.flink.table.planner.delegation.BlinkExecutorFactory");
-
-        // Set streaming mode to true
         configuration.setBoolean("streaming-mode", true);
 
-        // Set up the streaming execution environment
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.createLocalEnvironment();;
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.createLocalEnvironment();
 
-        // Kafka consumer configuration
+        // Kafka properties
         Properties kafkaProperties = new Properties();
         kafkaProperties.setProperty("bootstrap.servers", "localhost:29092");
         kafkaProperties.setProperty("group.id", "flink_group1");
 
-        // Create a Kafka consumer
-        FlinkKafkaConsumer<String> kafkaConsumer = new FlinkKafkaConsumer<>(
-                "trade_topic12",
-                new SimpleStringSchema(),
+        // Kafka consumer for Avro deserialization
+        FlinkKafkaConsumer<Trade> kafkaConsumer = new FlinkKafkaConsumer<>(
+                "trade_topic15",
+                AvroDeserializationSchema.forSpecific(Trade.class),
                 kafkaProperties
         );
 
-        // Assign timestamps and watermarks based on eventTime
         kafkaConsumer.assignTimestampsAndWatermarks(
-                WatermarkStrategy.<String>forBoundedOutOfOrderness(java.time.Duration.ofSeconds(5))
-                        .withTimestampAssigner((message, timestamp) -> {
-                            try {
-                                ObjectMapper objectMapper = new ObjectMapper();
-                                Trade trade = objectMapper.readValue(message, Trade.class);
-                                return trade.eventTime.toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
-                            } catch (Exception e) {
-                                return Long.MIN_VALUE;
-                            }
-                        })
+                WatermarkStrategy.<Trade>forBoundedOutOfOrderness(java.time.Duration.ofSeconds(5))
+                        .withTimestampAssigner((trade, timestamp) ->
+                                trade.getEventTime() != null ? trade.getEventTime().toEpochMilli() : Long.MIN_VALUE
+                        )
         );
 
-        // Consume data from Kafka
-        DataStream<String> kafkaStream = env.addSource(kafkaConsumer);
-
-        // Process the Kafka messages
-        DataStream<Trade> tradeStream = kafkaStream
-                .process(new ProcessFunction<String, Trade>() {
-                    @Override
-                    public void processElement(String value, Context ctx, Collector<Trade> out) throws Exception {
-                        Trade trade = objectMapper.readValue(value, Trade.class); // Use the configured ObjectMapper
-                        out.collect(trade);
-                    }
+        // Trade stream from Kafka
+        DataStream<Trade> tradeStream = env.addSource(kafkaConsumer)
+                .map(trade -> {
+                    System.out.println("Received trade: " + trade);
+                    return trade;
                 });
 
-        // Aggregate netting results
-            DataStream<NettingResult> nettingResultStream = tradeStream
+        // Process trades for netting
+        DataStream<NettingResult> nettingResultStream = tradeStream
                 .keyBy(trade -> new CompositeKey(
-                        trade.client,
-                        trade.currency,
-                        trade.buySellDirection,
-                        trade.settlementDate
+                        trade.getClient() != null ? trade.getClient().toString() : null,
+                        trade.getCurrency() != null ? trade.getCurrency().toString() : null,
+                        trade.getBuySellDirection() != null ? trade.getBuySellDirection().toString() : null,
+                        trade.getSettlementDate() != null ? trade.getSettlementDate().toString() : null
                 ))
+
                 .process(new NettingProcessFunction());
 
-        // Produce the results back to Kafka
-        FlinkKafkaProducer<String> kafkaProducer = new FlinkKafkaProducer<>(
-                "netting_results12",
-                new SimpleStringSchema(),
-                kafkaProperties
-        );
+        // Define Kafka sink
+        KafkaSink<NettingResult> kafkaSink = KafkaSink.<NettingResult>builder()
+                .setBootstrapServers("localhost:29092")
+                .setRecordSerializer(
+                        KafkaRecordSerializationSchema.builder()
+                                .setTopic("netting_results15")
+                                .setValueSerializationSchema(AvroSerializationSchema.forSpecific(NettingResult.class))
+                                .build()
+                )
+                .build();
 
-        // Convert NettingResult to JSON string before sending to Kafka
-        nettingResultStream
-                .map(result -> new ObjectMapper().writeValueAsString(result))
-                .addSink(kafkaProducer);
+        // Sink the results
+        nettingResultStream.sinkTo(kafkaSink);
+
 
         // Execute the Flink job
-        env.execute("Flink Netting Job");
+        env.execute("Flink Netting Job with Avro");
     }
 }

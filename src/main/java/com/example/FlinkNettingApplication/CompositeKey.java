@@ -5,10 +5,45 @@ import java.util.Objects;
 
 public class CompositeKey implements Serializable {
     public String client;
+
+    public String getClient() {
+        return client;
+    }
+
+    public void setClient(String client) {
+        this.client = client;
+    }
+
+    public String getCurrency() {
+        return currency;
+    }
+
+    public void setCurrency(String currency) {
+        this.currency = currency;
+    }
+
+    public String getBuySellDirection() {
+        return buySellDirection;
+    }
+
+    public void setBuySellDirection(String buySellDirection) {
+        this.buySellDirection = buySellDirection;
+    }
+
+    public String getSettlementDate() {
+        return settlementDate;
+    }
+
+    public void setSettlementDate(String settlementDate) {
+        this.settlementDate = settlementDate;
+    }
+
     public String currency;
     public String buySellDirection;
     public String settlementDate;
 
+    // Default constructor
+    public CompositeKey() {}
     public CompositeKey(String client, String currency, String buySellDirection, String settlementDate) {
         this.client = client;
         this.currency = currency;

@@ -1,0 +1,14 @@
+{
+  "type": "record",
+  "name": "Trade",
+  "namespace": "com.example.FlinkNettingApplication",
+  "fields": [
+    { "name": "client", "type": "string" },
+    { "name": "currency", "type": "string" },
+    { "name": "buySellDirection", "type": "string" },
+    { "name": "settlementDate", "type": "string" },
+    { "name": "consideration", "type": "double" },
+    { "name": "eventTime", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    { "name": "operation", "type": "string" }
+  ]
+}

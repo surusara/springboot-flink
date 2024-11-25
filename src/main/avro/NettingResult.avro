@@ -1,0 +1,35 @@
+{
+  "type": "record",
+  "name": "NettingResult",
+  "namespace": "com.example.FlinkNettingApplication",
+  "fields": [
+    {
+      "name": "client",
+      "type": "string"
+    },
+    {
+      "name": "currency",
+      "type": "string"
+    },
+    {
+      "name": "buySellDirection",
+      "type": "string"
+    },
+    {
+      "name": "settlementDate",
+      "type": "string"
+    },
+    {
+      "name": "netConsideration",
+      "type": "double"
+    },
+    {
+      "name": "paymentId",
+      "type": "string"
+    },
+    {
+      "name": "state",
+      "type": "string"
+    }
+  ]
+}
