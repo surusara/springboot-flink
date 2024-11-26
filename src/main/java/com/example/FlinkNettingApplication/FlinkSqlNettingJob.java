@@ -55,10 +55,17 @@ public class FlinkSqlNettingJob implements Serializable {
         kafkaProperties.setProperty("basic.auth.credentials.source", appProperties.getProperty("schema.registry.auth.credentials.source"));
         kafkaProperties.setProperty("basic.auth.user.info", appProperties.getProperty("schema.registry.auth.user.info"));
 
-        // Kafka consumer for Avro deserialization
-        FlinkKafkaConsumer<Trade> kafkaConsumer = new FlinkKafkaConsumer<>(
-                appProperties.getProperty("kafka.input.topic"),
-                AvroDeserializationSchema.forSpecific(Trade.class),
+//        // Kafka consumer for Avro deserialization
+//        FlinkKafkaConsumer<Trade> kafkaConsumer = new FlinkKafkaConsumer<>(
+//                appProperties.getProperty("kafka.input.topic"),
+//                AvroDeserializationSchema.forSpecific(Trade.class),
+//                kafkaProperties
+//        );
+
+        //new code for SettlementObligation
+        FlinkKafkaConsumer<SettlementObligation> kafkaConsumer = new FlinkKafkaConsumer<>(
+                "settlement_obligations_topic",
+                new SettlementObligationDeserializationSchema(),
                 kafkaProperties
         );
 
