@@ -60,20 +60,3 @@ public class FlinkKafkaConsumerConfluentCloud {
         env.execute("Flink Kafka Consumer with Confluent Cloud");
     }
 }
-
-
-<dependency>
-    <groupId>org.apache.flink</groupId>
-    <artifactId>flink-connector-kafka</artifactId>
-    <version>1.16.2</version>
-</dependency>
-<dependency>
-    <groupId>org.apache.flink</groupId>
-    <artifactId>flink-avro-confluent-registry</artifactId>
-    <version>1.16.2</version>
-</dependency>
-<dependency>
-    <groupId>io.confluent</groupId>
-    <artifactId>kafka-avro-serializer</artifactId>
-    <version>7.4.0</version> <!-- Ensure version matches your Kafka setup -->
-</dependency>
