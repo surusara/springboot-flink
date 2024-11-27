@@ -10,23 +10,27 @@ public class NettingResultConsumer {
     @Autowired
     private NettingResultRepository repository;
 
-    @KafkaListener(topics = "netting-results-topic", groupId = "netting-result-consumer-group")
-    public void consume(NettingResult nettingResult) {
-        System.out.println("Consumed message: " + nettingResult);
+    @KafkaListener(topics = "your-kafka-topic", groupId = "your-consumer-group")
+    public void consumeNettingResult(NettingResultAvro nettingResultAvro) {
+        // Map Avro object to Entity
+        NettingResult nettingResult = mapToEntity(nettingResultAvro);
 
-        // Upsert logic
-        repository.findById(nettingResult.getPaymentId())
-                .ifPresentOrElse(
-                        existing -> {
-                            existing.setClient(nettingResult.getClient());
-                            existing.setCurrency(nettingResult.getCurrency());
-                            existing.setBuySellDirection(nettingResult.getBuySellDirection());
-                            existing.setSettlementDate(nettingResult.getSettlementDate());
-                            existing.setNetConsideration(nettingResult.getNetConsideration());
-                            existing.setState(nettingResult.getState());
-                            repository.save(existing);
-                        },
-                        () -> repository.save(nettingResult)
-                );
+        // Save or update in the database
+        nettingResultRepository.save(nettingResult);
+
+        System.out.println("Persisted NettingResult: " + nettingResult);
     }
+
+    private NettingResult mapToEntity(NettingResultAvro avroObject) {
+        return new NettingResult(
+                avroObject.getClient(),
+                avroObject.getCurrency(),
+                avroObject.getBuySellDirection(),
+                avroObject.getSettlementDate(),
+                avroObject.getNetConsideration(),
+                avroObject.getPaymentId(),
+                avroObject.getState()
+        );
+    }
+
 }
